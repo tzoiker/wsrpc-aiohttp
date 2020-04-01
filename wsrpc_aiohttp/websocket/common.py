@@ -5,13 +5,21 @@ import types
 from collections import defaultdict
 from enum import IntEnum
 from functools import partial, wraps
-from typing import Callable, Mapping, NamedTuple
-from typing import Optional, Dict, List, Any, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Union,
+)
 
 import aiohttp
 
-from .tools import loads, Singleton
 from .route import Route, decorators
+from .tools import Singleton, loads
 
 
 class ClientException(Exception):

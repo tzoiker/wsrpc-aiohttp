@@ -1,9 +1,9 @@
-import logging
-
 import asyncio
+import logging
 from types import MappingProxyType
 
-from . import handler, decorators  # noqa
+from . import decorators, handler  # noqa
+
 
 log = logging.getLogger("wsrpc")
 
