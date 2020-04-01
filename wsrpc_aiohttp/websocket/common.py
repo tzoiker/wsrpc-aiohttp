@@ -276,9 +276,7 @@ class WSRPCBase:
 
     @staticmethod
     def is_route(func):
-        return hasattr(func, "__self__") and isinstance(
-            func.__self__, Route
-        )
+        return hasattr(func, "__self__") and isinstance(func.__self__, Route)
 
     async def handle_method(self, method, serial, *args, **kwargs):
         callee = self.resolver(method)
@@ -334,7 +332,9 @@ class WSRPCBase:
 
     def resolver(self, func_name):
         class_name, method = (
-            func_name.split(".", 1) if "." in func_name else (func_name, "init")
+            func_name.split(".", 1)
+            if "." in func_name
+            else (func_name, "init")
         )
 
         callee = self.routes.get(class_name, self._unresolvable)

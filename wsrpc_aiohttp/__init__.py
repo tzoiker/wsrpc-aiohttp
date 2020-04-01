@@ -7,9 +7,7 @@ from .websocket.handler import (
     WebSocketThreaded,
 )
 from .websocket import decorators
-from .websocket.route import (
-    Route, AllowedRoute, PrefixRoute, WebSocketRoute
-)
+from .websocket.route import Route, AllowedRoute, PrefixRoute, WebSocketRoute
 from .websocket.client import WSRPCClient
 from .websocket.tools import serializer
 

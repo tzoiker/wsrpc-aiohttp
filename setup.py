@@ -38,8 +38,8 @@ setup(
     ],
     long_description=open("README.rst").read(),
     packages=find_packages(exclude=["tests", "doc"]),
-    package_data={"wsrpc_aiohttp": ["static/*"],},
-    install_requires=["aiohttp<4", "yarl",],
+    package_data={"wsrpc_aiohttp": ["static/*"]},
+    install_requires=["aiohttp<4", "yarl"],
     python_requires=">3.5.*, <4",
     extras_require={
         "ujson": ["ujson"],
@@ -50,7 +50,6 @@ setup(
             "pytest-cov",
             "coverage!=4.3",
             "coveralls",
-
         ],
         "develop": [
             "async-timeout",

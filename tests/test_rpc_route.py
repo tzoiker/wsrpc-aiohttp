@@ -5,7 +5,11 @@ import pytest
 from async_timeout import timeout
 
 from wsrpc_aiohttp import (
-    Route, WSRPCClient, WebSocketAsync, decorators, ClientException
+    Route,
+    WSRPCClient,
+    WebSocketAsync,
+    decorators,
+    ClientException,
 )
 
 
