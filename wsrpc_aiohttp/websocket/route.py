@@ -2,7 +2,7 @@ import asyncio
 import logging
 from types import MappingProxyType
 
-from . import decorators, handler  # noqa
+from . import decorators
 
 
 log = logging.getLogger("wsrpc")
@@ -11,17 +11,24 @@ log = logging.getLogger("wsrpc")
 # noinspection PyUnresolvedReferences
 class RouteMeta(type):
     def __new__(cls, clsname, superclasses, attributedict):
-        attrs = {"__no_proxy__": {}, "__proxy__": {}}
+        attrs = {"__no_proxy__": set(), "__proxy__": set()}
+
+        for superclass in superclasses:
+            if not hasattr(superclass, "__proxy__"):
+                continue
+
+            attrs["__no_proxy__"].update(superclass.__no_proxy__)
+            attrs["__proxy__"].update(superclass.__proxy__)
 
         for key, value in attributedict.items():
+            if key in ("__proxy__", "__no_proxy__"):
+                continue
             if isinstance(value, decorators.NoProxyFunction):
-                if isinstance(value, decorators.ProxyBase):
-                    value = value.func
-                attrs["__no_proxy__"][key] = value
+                value = value.func
+                attrs["__no_proxy__"].add(key)
             elif isinstance(value, decorators.ProxyFunction):
-                if isinstance(value, decorators.ProxyBase):
-                    value = value.func
-                attrs["__proxy__"][key] = value
+                value = value.func
+                attrs["__proxy__"].add(key)
 
             attrs[key] = value
 
@@ -31,27 +38,35 @@ class RouteMeta(type):
             if not callable(value):
                 continue
 
-            if isinstance(value, decorators.ProxyBase):
-                value = value.func
-
             if instance.__is_method_allowed__(key, value) is True:
-                attrs["__proxy__"][key] = value
+                instance.__proxy__.add(key)
             elif instance.__is_method_masked__(key, value) is True:
-                attrs["__no_proxy__"][key] = value
+                instance.__no_proxy__.add(key)
 
         for key in ("__no_proxy__", "__proxy__"):
-            attrs[key] = MappingProxyType(attrs[key])
+            setattr(instance, key, frozenset(getattr(instance, key)))
 
         return instance
 
 
 class RouteBase(metaclass=RouteMeta):
-    def __init__(self, obj: "handler.WebSocketBase"):
-        self.socket = obj
+    __proxy__ = MappingProxyType({})
+    __no_proxy__ = MappingProxyType({})
+
+    def __init__(self, obj):
+        self.__socket = obj
+        self.__loop = getattr(self.socket, "_loop", None)
+
+        if self.__loop is None:
+            self.__loop = asyncio.get_event_loop()
+
+    @property
+    def socket(self) -> "WebSocketBase":  # noqa
+        return self.__socket
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop:
-        return self.socket._loop  # noqa
+        return self.__loop
 
     def _onclose(self):
         pass
@@ -67,21 +82,21 @@ class RouteBase(metaclass=RouteMeta):
 
 class Route(RouteBase):
     def _method_lookup(self, method):
-        return self.__proxy__.get(method)
+        if method in self.__no_proxy__:
+            raise NotImplementedError("Method masked")
 
-    def _resolve(self, method):
-        if method.startswith("_") or method in self.__no_proxy__:
-            raise AttributeError("Trying to get private method.")
-
-        func = self._method_lookup(method)
-        if func is not None:
-            return func
+        if method in self.__proxy__:
+            return getattr(self, method)
 
         raise NotImplementedError("Method not implemented")
 
-    @decorators.proxy
-    def placebo(self, *args, **kwargs):
-        log.debug("PLACEBO IS CALLED!!! args: %r, kwargs: %r", args, kwargs)
+    @classmethod
+    def __is_method_masked__(cls, name, func):
+        if name.startswith("_"):
+            return True
+
+    def __call__(self, method):
+        return self._method_lookup(method)
 
 
 class AllowedRoute(Route):
@@ -102,7 +117,7 @@ class PrefixRoute(Route):
         return False
 
     def _method_lookup(self, method):
-        return self.__proxy__.get(self.PREFIX + method)
+        return super()._method_lookup(self.PREFIX + method)
 
 
 class WebSocketRoute(AllowedRoute):

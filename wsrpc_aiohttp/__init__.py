@@ -2,13 +2,8 @@ import os.path
 
 from .websocket import decorators
 from .websocket.client import WSRPCClient
-from .websocket.handler import (
-    ClientException,
-    WebSocketAsync,
-    WebSocketBase,
-    WebSocketThreaded,
-    WSRPCBase,
-)
+from .websocket.common import ClientException, WSRPCBase, WSRPCError
+from .websocket.handler import WebSocketAsync, WebSocketBase, WebSocketThreaded
 from .websocket.route import AllowedRoute, PrefixRoute, Route, WebSocketRoute
 from .websocket.tools import serializer
 
@@ -24,6 +19,7 @@ __all__ = (
     "STATIC_DIR",
     "WSRPCBase",
     "WSRPCClient",
+    "WSRPCError",
     "WebSocketAsync",
     "WebSocketBase",
     "WebSocketRoute",

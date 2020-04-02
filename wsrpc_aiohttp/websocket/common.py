@@ -4,7 +4,7 @@ import logging
 import types
 from collections import defaultdict
 from enum import IntEnum
-from functools import partial, wraps
+from functools import partial
 from typing import (
     Any,
     Callable,
@@ -18,45 +18,35 @@ from typing import (
 
 import aiohttp
 
-from .route import Route, decorators
-from .tools import Singleton, loads
+from . import decorators
+from .route import Route
+from .tools import Singleton, awaitable, loads
 
 
-class ClientException(Exception):
+class WSRPCError(Exception):
     pass
 
 
-class PingTimeoutError(Exception):
+class ClientException(WSRPCError):
+    __slots__ = ("type", "message", "raw")
+
+    def __init__(self, payload):
+        self.type = payload.get("type")
+        self.message = payload.get("message")
+        self.raw = payload
+
+
+class PingTimeoutError(WSRPCError):
     pass
 
 
-def ping(obj, **kwargs):
+def ping(_, **kwargs):
     return kwargs
 
 
 log = logging.getLogger(__name__)
 RouteType = Union[Callable[["WSRPCBase", Any], Any], Route]
 FrameMappingItemType = Mapping[IntEnum, Callable[[aiohttp.WSMessage], Any]]
-
-
-def awaitable(func):
-    if asyncio.iscoroutinefunction(func):
-        return func
-
-    @wraps(func)
-    async def wrap(*args, **kwargs):
-        result = func(*args, **kwargs)
-
-        is_awaitable = (
-            asyncio.iscoroutine(result)
-            or asyncio.isfuture(result)
-            or hasattr(result, "__await__")
-        )
-        if is_awaitable:
-            return await result
-        return result
-
-    return wrap
 
 
 class _ProxyMethod:
@@ -181,15 +171,17 @@ class WSRPCBase:
         log.warning("Unhandled message %r %r", message.type, message.data)
 
     async def _call_method(self, call_item: CallItem):
-        log.debug("Acquiring lock for %s serial %s", self, call_item.serial)
-
         try:
             if not isinstance(call_item.method, Nothing):
-                args, kwargs = self.prepare_args(call_item.params)
-
-                return await self.handle_method(
-                    call_item.method, call_item.serial, *args, **kwargs
+                log.debug(
+                    "Acquiring lock for %r serial %r", self, call_item.serial
                 )
+                async with self._locks[call_item.serial]:
+                    args, kwargs = self.prepare_args(call_item.params)
+
+                    return await self.handle_method(
+                        call_item.method, call_item.serial, *args, **kwargs
+                    )
             elif not isinstance(call_item.result, Nothing):
                 return await self.handle_result(
                     call_item.serial, call_item.result
@@ -233,9 +225,8 @@ class WSRPCBase:
         if serial is None:
             return await self.handle_event(data)
 
-        async with self._locks[serial]:
-            call_item = self._parse_message(data)
-            await self._call_method(call_item)
+        call_item = self._parse_message(data)
+        await self._call_method(call_item)
 
     async def _on_message(self, msg: aiohttp.WSMessage):
         async def unknown_method(msg: aiohttp.WSMessage):
@@ -294,7 +285,8 @@ class WSRPCBase:
             a.extend(args)
             args = a
 
-        result = await self._executor(partial(callee, *args, **kwargs))
+        func = partial(callee, *args, **kwargs)
+        result = await self._executor(func)
         await self._send(result=result, id=serial)
 
     async def handle_result(self, serial, result):
@@ -363,7 +355,7 @@ class WSRPCBase:
             if class_name not in self._handlers:
                 self._handlers[class_name] = callee(self)
 
-            return self._handlers[class_name]._resolve(method)  # noqa
+            return self._handlers[class_name](method)
 
         callee = self.routes.get(func_name, self._unresolvable)
         if hasattr(callee, "__call__"):
@@ -377,7 +369,7 @@ class WSRPCBase:
         self._serial += 2
         return self._serial
 
-    async def call(self, func: str, **kwargs):
+    async def call(self, func: str, timeout=None, **kwargs):
         """ Method for call remote function
 
         Remote methods allows only kwargs as arguments.
@@ -416,7 +408,10 @@ class WSRPCBase:
         )
 
         await self._send(**payload)
-        return await asyncio.wait_for(future, self._timeout)
+        result = await asyncio.wait_for(
+            future, timeout=timeout or self._timeout
+        )
+        return result
 
     async def emit(self, event):
         await self._send(**event)
@@ -490,4 +485,4 @@ class WSRPCBase:
         return _Proxy(self.call)
 
 
-__all__ = ("Route", "WSRPCBase", "ClientException")
+__all__ = ("Route", "WSRPCBase", "ClientException", "WSRPCError")

@@ -3,14 +3,14 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict
+from functools import partial
 
 import aiohttp
 from aiohttp import WebSocketError, web
 from aiohttp.abc import AbstractView
 
-from .common import ClientException, WSRPCBase, awaitable
-from .route import WebSocketRoute
-from .tools import Lazy, dumps
+from .common import ClientException, WSRPCBase
+from .tools import Lazy, awaitable, dumps
 
 
 global_log = logging.getLogger("wsrpc")
@@ -115,23 +115,26 @@ class WebSocketBase(WSRPCBase, AbstractView):
             await self.close()
 
     @classmethod
-    def broadcast(cls, func, callback=WebSocketRoute.placebo, **kwargs):
+    def broadcast(cls, func, callback=None, return_exceptions=True, **kwargs):
         """ Call remote function on all connected clients
 
         :param func: Remote route name
         :param callback: Function which receive responses
+        :param return_exceptions: Return exceptions of client calls
+            instead of raise a first one
         """
-
-        loop = asyncio.get_event_loop()
 
         tasks = []
 
         for client in cls.get_clients().values():
-            tasks.append(
-                loop.create_task(client.call, func, callback, **kwargs)
-            )
+            task = asyncio.ensure_future(client.call(func, **kwargs))
 
-        return asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+            if callback:
+                task.add_done_callback(partial(callback, client))
+
+            tasks.append(task)
+
+        return asyncio.gather(*tasks, return_exceptions=return_exceptions)
 
     async def _send(self, **kwargs):
         try:
@@ -154,7 +157,7 @@ class WebSocketBase(WSRPCBase, AbstractView):
         if future:
             future.set_exception(ClientException(error))
 
-    async def close(self):
+    async def close(self, message=None):
         """ Cancel all pending tasks and stop this socket connection """
         await self.socket.close()
         await super().close()
